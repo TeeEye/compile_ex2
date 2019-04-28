@@ -28,9 +28,27 @@
 #define IF					25
 #define THEN				26
 #define ELSE				27
-
+#define VARIABLE			100
+#define FLOAT				101
+#define INT					102
+#define CONST				103
+#define RELEXP    			104
+#define FACTOR				105
+#define ITEM				106
+#define ALGEXP				107
+#define ASSIGN				108
+#define CONDITION			109
+#define VARLIST				110
+#define TYPE				111
+#define VARINFO				112
+#define VARDEFINE			113
+#define WHILEEXP 			114
+#define COMMAND 			115
+#define CMDLIST				116
 #define NEWLINE     23
 #define ERRORCHAR   24
+#define SUBPROC				117
+#define PROC				118
 
 int yylval;
 /* yylval 是yacc中定义的变量，用来保存记号的属性值，默认是int类型。 
@@ -62,8 +80,36 @@ id			{letter}({letter}|{digit})*
 /* 注意：上面正规定义中出现的小括号表示分组，而不是被匹配的字符。
  *       而大括号括起的部分表示正规定义名。
  */
-number	{digit}+(\.{digit}+)?(E[+-]?{digit}+)?
-
+/*
+*number	{digit}+(\.{digit}+)?(E[+-]?{digit}+)?
+*/
+variable {id}
+relop [<|<=|=|>|>=|<>]
+float  {digit}+\.{digit}*
+integer  {digit}+
+constant  {integer}|{float}
+single_factor {variable}|{constant}
+muldiv_factor (\*{single_factor})|(\/{single_factor})
+item {single_factor}{muldiv_factor}*
+addsub_item (\+{item})|(\-{item})
+algexp {item}{addsub_item}*
+factor {single_factor}|(\({algexp}\))
+assign {variable}{delim}*:={delim}*{algexp}
+relexp {algexp}{relop}{algexp}
+varlist {variable}({delim}*,{delim}*{variable})*
+type (INTEGER)|(REAL)
+varinfo_ {varlist}{delim}*:{delim}*{type}
+varinfo {varinfo_}({delim}*;{delim}*{varinfo_})*
+vardefine VAR{ws}{varinfo}
+while_prefix WHILE{ws}{relexp}{ws}DO{ws}
+while_assign {while_prefix}*{assign}
+condition_while_assign (IF{ws}{relexp}{ws}THEN{ws}[{while_assign}|(?1)]{ws}ELSE{ws}[{while_assign}|(?1)])
+single_cmd {while_assign}|{condition_while_assign}
+composed_cmd (BEGIN{ws}[{single_cmd}|(?1)]({ws};{ws}{single_cmd}|(?1))*{ws}END{ws})
+command {single_cmd}
+cmdlist {command}({delim}*;{delim}*{command})*
+subproc {vardefine}{ws}BEGIN{ws}{cmdlist}{ws}END.
+proc PROGRAM{ws}{id}{delim}*;{delim}*{subproc}
 
 
 /* %%作为lex文件三个部分的分割符，必须位于行首 */
@@ -88,8 +134,20 @@ do		          {return (DO);}
 if							{return (IF);}
 then						{return (THEN);}
 else						{return (ELSE);}
-{id}	          {yylval = installID (); return (ID);}
-{number}	      {yylval = installNum (); return (NUMBER);}
+{factor} 					{return (FACTOR);}
+{variable}	          {yylval = installID (); return (VARIABLE);}
+{item}					{return (ITEM);}
+{algexp}				{return (ALGEXP);}
+{assign}				{return (ASSIGN);}
+{relexp}				{return (RELEXP);}
+{varlist}				{return (VARLIST);}
+{varinfo}				{return (VARINFO);}
+{vardefine}				{return (VARDEFINE);}
+{condition_while_assign}				{return (CONDITION);}
+{while_assign}			{return (WHILEEXP);}
+{cmdlist} 				{return (CMDLIST);}
+{subproc}				{return (SUBPROC);}
+{proc}					{return (PROC);}
 "<"	            {yylval = LT; return (RELOP);}
 "<="	          {yylval = LE; return (RELOP);}
 "="	            {yylval = EQ; return (RELOP);}
@@ -128,9 +186,22 @@ int yywrap (){
 
 void writeout(int c){
   switch(c){
+	case CONST: fprintf(yyout, "(CONST, \"%s\") ", yytext);break;
   	case ERRORCHAR: fprintf(yyout, "(ERRORCHAR, \"%s\") ", yytext);break;
+	case CONDITION: fprintf(yyout, "(CONDITION, \"%s\") ", yytext);break;
+	case CMDLIST: fprintf(yyout, "(CMDLIST, \"%s\") ", yytext);break;
   	case RELOP: fprintf(yyout, "(RELOP, \"%s\") ", yytext);break;  	  
     case WHILE: fprintf(yyout, "(WHILE, \"%s\") ", yytext);break;
+	case ALGEXP: fprintf(yyout, "(ALGEXP, \"%s\") ", yytext);break;
+	case ASSIGN: fprintf(yyout, "(ASSIGN, \"%s\") ", yytext);break;
+	case ITEM: fprintf(yyout, "(ITEM, \"%s\") ", yytext); break;
+	case FACTOR: fprintf(yyout, "(FACTOR, \"%s\") ", yytext); break;
+	case RELEXP: fprintf(yyout, "(RELEXP, \"%s\") ", yytext);break;
+	case VARLIST: fprintf(yyout, "(VARLIST, \"%s\") ", yytext); break;
+	case VARINFO: fprintf(yyout, "(VARINFO, \"%s\") ", yytext); break;
+	case VARDEFINE: fprintf(yyout, "(VARDEFINE, \"%s\") ", yytext); break;
+	case SUBPROC: fprintf(yyout, "(SUBPROC, \"%s\") ", yytext); break;
+	case PROC: fprintf(yyout, "(PROC, \"%s\") ", yytext); break;
     case DO: fprintf(yyout, "(DO, \"%s\") ", yytext);break;
     case NUMBER: fprintf(yyout, "(NUM, \"%s\") ", yytext);break;
     case ID: fprintf(yyout, "(ID, \"%s\") ", yytext);break;
@@ -138,6 +209,8 @@ void writeout(int c){
     case THEN: fprintf(yyout, "(THEN, \"%s\") ", yytext);break;
     case ELSE: fprintf(yyout, "(ELSE, \"%s\") ", yytext);break;
     case NEWLINE: fprintf(yyout, "\n");break;
+	case VARIABLE: fprintf(yyout, "(VAR, \"%s\") ", yytext);break;
+	case WHILEEXP: fprintf(yyout, "(WHILECMD, \"%s\") ", yytext);break;
     default:break;
   }
   return;
